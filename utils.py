@@ -21,6 +21,36 @@ from keras.callbacks import TensorBoard
 from collections import Counter
 from keras.preprocessing.image import ImageDataGenerator
 
+from tensorflow.python.framework import graph_io
+from tensorflow.python.tools import freeze_graph
+from tensorflow.core.protobuf import saver_pb2
+from tensorflow.python.training import saver as saver_lib
+
+
+def convert_keras_to_pb(model, models_dir, model_filename):
+    output_node = [node.op.name for node in model.outputs][0]
+    K.set_learning_phase(0)
+    sess = K.get_session()
+    saver = saver_lib.Saver(write_version=saver_pb2.SaverDef.V2)
+    checkpoint_path = saver.save(sess, './saved_ckpt', global_step=0, latest_filename='checkpoint_state')
+    graph_io.write_graph(sess.graph, '.', 'tmp.pb')
+    froze = freeze_graph.freeze_graph('./tmp.pb', '',
+                                      False, checkpoint_path, output_node,
+                                      "save/restore_all", "save/Const:0",
+                                      models_dir+model_filename, False, "")
+
+    
+# output folder and model names
+#models_dir = './models/'
+#model_filename = 'model_tf_{}x{}.pb'.format(image_size[0], image_size[1])
+#convert_keras_to_pb(deeplab_model, models_dir, model_filename)
+
+# output folder and model names
+models_dir = './models/'
+model_filename = 'model_tf_{}x{}.pb'.format(image_size[0], image_size[1])
+
+convert_keras_to_pb(deeplab_model, models_dir, model_filename)
+
 tensorboard = TensorBoard(log_dir='./logs1', histogram_freq=2,
                           write_graph=True, write_images=True)
 
