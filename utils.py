@@ -20,6 +20,13 @@ import pandas as pd
 from keras.callbacks import TensorBoard
 from collections import Counter
 from keras.preprocessing.image import ImageDataGenerator
+from tensorflow.python.client import device_lib
+
+# output folder and model names
+
+tensorboard = TensorBoard(log_dir='./logs1', histogram_freq=2,
+                          write_graph=True, write_images=True)
+
 
 from tensorflow.python.framework import graph_io
 from tensorflow.python.tools import freeze_graph
@@ -28,6 +35,10 @@ from tensorflow.python.training import saver as saver_lib
 
 
 def convert_keras_to_pb(model, models_dir, model_filename):
+    from tensorflow.python.framework import graph_io
+    from tensorflow.python.tools import freeze_graph
+    from tensorflow.core.protobuf import saver_pb2
+    from tensorflow.python.training import saver as saver_lib
     output_node = [node.op.name for node in model.outputs][0]
     K.set_learning_phase(0)
     sess = K.get_session()
@@ -38,23 +49,37 @@ def convert_keras_to_pb(model, models_dir, model_filename):
                                       False, checkpoint_path, output_node,
                                       "save/restore_all", "save/Const:0",
                                       models_dir+model_filename, False, "")
-
-    
-# output folder and model names
-#models_dir = './models/'
-#model_filename = 'model_tf_{}x{}.pb'.format(image_size[0], image_size[1])
-#convert_keras_to_pb(deeplab_model, models_dir, model_filename)
-
-# output folder and model names
-models_dir = './models/'
-model_filename = 'model_tf_{}x{}.pb'.format(image_size[0], image_size[1])
-
-convert_keras_to_pb(deeplab_model, models_dir, model_filename)
-
-tensorboard = TensorBoard(log_dir='./logs1', histogram_freq=2,
-                          write_graph=True, write_images=True)
+    # output folder and model names
+    #models_dir = './models/'
+    #model_filename = 'model_tf_{}x{}.pb'.format(image_size[0], image_size[1])
+    #convert_keras_to_pb(deeplab_model, models_dir, model_filename)
 
 
+def freeze_session(session, keep_var_names=None, output_names=None, clear_devices=True):
+    from tensorflow.python.framework.graph_util import convert_variables_to_constants
+    graph = session.graph
+    with graph.as_default():
+        freeze_var_names = list(set(v.op.name for v in tf.global_variables()).difference(keep_var_names or []))
+        #print('freeze', freeze_var_names)
+        output_names = output_names or []
+        output_names += [v.op.name for v in tf.global_variables()]
+        input_graph_def = graph.as_graph_def()
+        if clear_devices:
+            for node in input_graph_def.node:
+                node.device = ""
+        frozen_graph = convert_variables_to_constants(session, input_graph_def,
+                                                      output_names, freeze_var_names)
+        
+        #frozen_graph = freeze_session(K.get_session(),
+        #                      output_names=[out.op.name for out in deeplab_model.outputs])
+        #tf.train.write_graph(frozen_graph, "weights", "arch1.pb", as_text=False)
+
+        return frozen_graph
+
+
+def get_available_gpus():
+    local_device_protos = device_lib.list_local_devices()
+    return [x.name for x in local_device_protos if x.device_type == 'GPU']
 
 def create_unet(image_size, n_classes):
     s = Input(image_size+(3,))
@@ -359,7 +384,7 @@ class SegModel:
                               backbone='mobilenetv2', OS=16, alpha=1, use_coordconv = self.coords)
         if multi_gpu:
             from keras.utils import multi_gpu_model
-            model = multi_gpu_model(deeplab_model, gpus=4)
+            model = multi_gpu_model(deeplab_model, gpus = len(get_available_gpus()))
         model.compile(optimizer = opt, 
                       loss = wisense_loss(w),
                       #loss = softmax_sparse_crossentropy_ignoring_last_label, 
