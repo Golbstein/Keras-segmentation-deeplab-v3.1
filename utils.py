@@ -14,7 +14,7 @@ import keras.backend as K
 import tensorflow as tf
 from keras.optimizers import Adam, SGD, RMSprop
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
-from keras.layers import Conv2D, MaxPooling2D, Input, Conv2DTranspose, Concatenate, BatchNormalization, Dropout, Activation, Reshape, Permute
+from keras.layers import *
 from keras.models import Model, Sequential
 #import bcolz
 import itertools
@@ -27,8 +27,175 @@ from segnet import *
 from clr import *
 from keras.regularizers import l2
 from keras.utils import to_categorical
+from enet import build
 
 
+# mobilenet
+def _conv_block(inputs, filters, alpha, kernel=(3, 3), strides=(1, 1), block_id=1):
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+    filters = int(filters * alpha)
+    x = Conv2D(filters, kernel,
+               padding='same',
+               use_bias=False,
+               strides=strides,
+               name='conv_%d' % block_id)(inputs)
+    x = BatchNormalization(axis=channel_axis, name='conv_%d_bn' % block_id)(x)
+    return Activation(ReLU(6.), name='conv_%d_relu' % block_id)(x)
+
+def _depthwise_conv_block(inputs, pointwise_conv_filters, alpha,
+                          depth_multiplier=1, strides=(1, 1), block_id=1):
+    channel_axis = 1 if K.image_data_format() == 'channels_first' else -1
+    pointwise_conv_filters = int(pointwise_conv_filters * alpha)
+
+    x = DepthwiseConv2D((3, 3),
+                        padding='same',
+                        depth_multiplier=depth_multiplier,
+                        strides=strides,
+                        use_bias=False,
+                        name='conv_dw_%d' % block_id)(inputs)
+    x = BatchNormalization(axis=channel_axis, name='conv_dw_%d_bn' % block_id)(x)
+    x = Activation(ReLU(6.), name='conv_dw_%d_relu' % block_id)(x)
+
+    x = Conv2D(pointwise_conv_filters, (1, 1),
+               padding='same',
+               use_bias=False,
+               strides=(1, 1),
+               name='conv_pw_%d' % block_id)(x)
+    x = BatchNormalization(axis=channel_axis, name='conv_pw_%d_bn' % block_id)(x)
+    return Activation(ReLU(6.), name='conv_pw_%d_relu' % block_id)(x)
+
+def _resize_images(x, height_factor, width_factor, data_format):
+    if data_format == 'channels_first':
+        original_shape = K.int_shape(x)
+        new_shape = tf.shape(x)[2:]
+        new_shape *= tf.constant(np.array([height_factor, width_factor]).astype('int32'))
+        x = K.permute_dimensions(x, [0, 2, 3, 1])
+        x = tf.image.resize_bilinear(x, new_shape)
+        x = K.permute_dimensions(x, [0, 3, 1, 2])
+        x.set_shape(
+            (None, None, original_shape[2] * height_factor if original_shape[2] is not None else None,
+             original_shape[3] * width_factor if original_shape[3] is not None else None))
+        return x
+    elif data_format == 'channels_last':
+        original_shape = K.int_shape(x)
+        new_shape = tf.shape(x)[1:3]
+        new_shape *= tf.constant(np.array([height_factor, width_factor]).astype('int32'))
+        x = tf.image.resize_bilinear(x, new_shape)
+        x.set_shape(
+            (None, original_shape[1] * height_factor if original_shape[1] is not None else None,
+             original_shape[2] * width_factor if original_shape[2] is not None else None, None))
+        return x
+    else:
+        raise ValueError('Invalid data_format:', data_format)
+
+class BilinearUpSampling2D(Layer):
+    def __init__(self, size=(2, 2), data_format=None, **kwargs):
+        super(BilinearUpSampling2D, self).__init__(**kwargs)
+        self.data_format = K.normalize_data_format(data_format)
+        self.size = conv_utils.normalize_tuple(size, 2, 'size')
+        self.input_spec = InputSpec(ndim=4)
+
+    def compute_output_shape(self, input_shape):
+        if self.data_format == 'channels_first':
+            height = self.size[0] * input_shape[2] if input_shape[2] is not None else None
+            width = self.size[1] * input_shape[3] if input_shape[3] is not None else None
+            return (input_shape[0],
+                    input_shape[1],
+                    height,
+                    width)
+        elif self.data_format == 'channels_last':
+            height = self.size[0] * input_shape[1] if input_shape[1] is not None else None
+            width = self.size[1] * input_shape[2] if input_shape[2] is not None else None
+            return (input_shape[0],
+                    height,
+                    width,
+                    input_shape[3])
+    def call(self, inputs, **kwargs):
+        return _resize_images(inputs, self.size[0], self.size[1],
+                              self.data_format)
+
+    def get_config(self):
+        config = {'size': self.size,
+                  'data_format': self.data_format}
+        base_config = super(BilinearUpSampling2D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+    
+def MobileUNet(input_shape=None,
+               alpha=1.0,
+               alpha_up=1.0,
+               depth_multiplier=1,
+               dropout=1e-3,
+               input_tensor=None, n_classes = 22):
+    if input_tensor is None:
+        img_input = Input(shape=input_shape)
+    else:
+        if not K.is_keras_tensor(input_tensor):
+            img_input = Input(tensor=input_tensor, shape=input_shape)
+        else:
+            img_input = input_tensor
+
+    b00 = _conv_block(img_input, 32, alpha, strides=(2, 2), block_id=0)
+    b01 = _depthwise_conv_block(b00, 64, alpha, depth_multiplier, block_id=1)
+
+    b02 = _depthwise_conv_block(b01, 128, alpha, depth_multiplier, block_id=2, strides=(2, 2))
+    b03 = _depthwise_conv_block(b02, 128, alpha, depth_multiplier, block_id=3)
+
+    b04 = _depthwise_conv_block(b03, 256, alpha, depth_multiplier, block_id=4, strides=(2, 2))
+    b05 = _depthwise_conv_block(b04, 256, alpha, depth_multiplier, block_id=5)
+
+    b06 = _depthwise_conv_block(b05, 512, alpha, depth_multiplier, block_id=6, strides=(2, 2))
+    b07 = _depthwise_conv_block(b06, 512, alpha, depth_multiplier, block_id=7)
+    b08 = _depthwise_conv_block(b07, 512, alpha, depth_multiplier, block_id=8)
+    b09 = _depthwise_conv_block(b08, 512, alpha, depth_multiplier, block_id=9)
+    b10 = _depthwise_conv_block(b09, 512, alpha, depth_multiplier, block_id=10)
+    b11 = _depthwise_conv_block(b10, 512, alpha, depth_multiplier, block_id=11)
+
+    b12 = _depthwise_conv_block(b11, 1024, alpha, depth_multiplier, block_id=12, strides=(2, 2))
+    b13 = _depthwise_conv_block(b12, 1024, alpha, depth_multiplier, block_id=13)
+    # b13 = Dropout(dropout)(b13)
+
+    filters = int(512 * alpha)
+    up1 = concatenate([
+        Conv2DTranspose(filters, (2, 2), strides=(2, 2), padding='same')(b13),
+        b11,
+    ], axis=3)
+    b14 = _depthwise_conv_block(up1, filters, alpha_up, depth_multiplier, block_id=14)
+
+    filters = int(256 * alpha)
+    up2 = concatenate([
+        Conv2DTranspose(filters, (2, 2), strides=(2, 2), padding='same')(b14),
+        b05,
+    ], axis=3)
+    b15 = _depthwise_conv_block(up2, filters, alpha_up, depth_multiplier, block_id=15)
+
+    filters = int(128 * alpha)
+    up3 = concatenate([
+        Conv2DTranspose(filters, (2, 2), strides=(2, 2), padding='same')(b15),
+        b03,
+    ], axis=3)
+    b16 = _depthwise_conv_block(up3, filters, alpha_up, depth_multiplier, block_id=16)
+
+    filters = int(64 * alpha)
+    up4 = concatenate([
+        Conv2DTranspose(filters, (2, 2), strides=(2, 2), padding='same')(b16),
+        b01,
+    ], axis=3)
+    b17 = _depthwise_conv_block(up4, filters, alpha_up, depth_multiplier, block_id=17)
+
+    filters = int(32 * alpha)
+    up5 = concatenate([b17, b00], axis=3)
+    # b18 = _depthwise_conv_block(up5, filters, alpha_up, depth_multiplier, block_id=18)
+    b18 = _conv_block(up5, filters, alpha_up, block_id=18)
+
+    x = Conv2D(n_classes, (1, 1), kernel_initializer='he_normal', activation='linear')(b18)
+    x = BilinearUpSampling2D(size=(2, 2))(x)
+    
+    x = Reshape((-1, n_classes))(x)
+    
+    x = Activation('softmax')(x)
+
+    model = Model(img_input, x)
+    return model
 
 # Tiramisu
 def relu(x): return Activation('relu')(x)
@@ -273,7 +440,7 @@ def get_VOC2012_classes():
     }
     return PASCAL_VOC_classes
 
-weights = {0: .005, 1: .1, 2: 1., 3: .5, 4: 1., 5: 1., 6: 1., 7: 1., 8: 1., 9: 1.,
+weights = {0: .05, 1: .1, 2: 1., 3: .5, 4: 1., 5: 1., 6: 1., 7: 1., 8: 1., 9: 1.,
            10: .8, 11: .6, 12: 1.,13: .7, 14: 1., 15: 1.2, 16: 1., 17: .6, 18: .9, 19: 1., 20: 1., 255: 0.}
 
 def label2weight(y):
@@ -319,7 +486,7 @@ def foreground_sparse_accuracy(y_true, y_pred):
     nb_classes = K.int_shape(y_pred)[-1]
     y_pred = K.reshape(y_pred, (-1, nb_classes))
     y_true = tf.to_int32(K.reshape(y_true, (-1, 1))[:,0])
-    y_true = K.one_hot(y_true, nb_classes)
+    y_true = K.one_hot(y_true, nb_classes+1)
     unpacked = tf.unstack(y_true, axis=-1)
     legal_labels = tf.cast(unpacked[-1], tf.bool) | tf.cast(unpacked[0], tf.bool)
     true_pixels = K.argmax(y_true, axis=-1) # exclude background
@@ -329,20 +496,19 @@ def foreground_sparse_accuracy(y_true, y_pred):
 def background_sparse_accuracy(y_true, y_pred):
     nb_classes = K.int_shape(y_pred)[-1]
     y_pred = K.reshape(y_pred, (-1, nb_classes))
-    y_true = tf.to_int32(K.reshape(y_true, (-1, 1))[:,0])
-    y_true = K.one_hot(y_true, nb_classes)
-    true_pixels = K.argmax(y_true, axis=-1)
     pred_pixels = K.argmax(y_pred, axis=-1)
+    true_pixels = tf.to_int64(K.reshape(y_true, (-1, 1))[:,0])
     legal_labels = K.equal(true_pixels, 0)
     return K.sum(tf.to_float(legal_labels & K.equal(true_pixels, pred_pixels))) / K.sum(tf.to_float(legal_labels))
 
 def sparse_accuracy_ignoring_last_label(y_true, y_pred):
     nb_classes = K.int_shape(y_pred)[-1]
     y_pred = K.reshape(y_pred, (-1, nb_classes))
-    y_true = tf.to_int32(K.reshape(y_true, (-1, 1))[:,0])
-    y_true = K.one_hot(y_true, nb_classes)
+    y_true = K.one_hot(tf.to_int32(K.flatten(y_true)),
+                       nb_classes + 1)
     unpacked = tf.unstack(y_true, axis=-1)
     legal_labels = ~tf.cast(unpacked[-1], tf.bool)
+    y_true = tf.stack(unpacked[:-1], axis=-1)
     return K.sum(tf.to_float(legal_labels & K.equal(K.argmax(y_true, axis=-1),
                                                     K.argmax(y_pred, axis=-1)))) / K.sum(tf.to_float(legal_labels))
 
@@ -351,9 +517,10 @@ def Mean_IOU(y_true, y_pred):
     iou = []
     true_pixels = tf.to_int64(y_true[:,:,0])
     pred_pixels = K.argmax(y_pred, axis=-1)
-    for i in range(1, nb_classes-1): # exclude first label (background) and last label (void)
+    void_labels = K.equal(true_pixels, nb_classes)
+    for i in range(0, nb_classes): # exclude first label (background) and last label (void)
         true_labels = K.equal(true_pixels, i)
-        pred_labels = K.equal(pred_pixels, i)
+        pred_labels = K.equal(pred_pixels, i) & ~void_labels
         inter = tf.to_int32(true_labels & pred_labels)
         union = tf.to_int32(true_labels | pred_labels)
         legal_batches = K.sum(tf.to_int32(true_labels), axis=1)>0
@@ -365,18 +532,28 @@ def Mean_IOU(y_true, y_pred):
     return K.mean(iou)
 
 
-def wisense_loss(w):
-    def softmax_sparse_crossentropy_ignoring_last_label(y_true, y_pred):
-        y_pred = K.reshape(y_pred, (-1, K.int_shape(y_pred)[-1]))
-        log_softmax = tf.nn.log_softmax(y_pred)
-        y_true = K.one_hot(tf.to_int32(K.flatten(y_true)), K.int_shape(y_pred)[-1]+1)
-        unpacked = tf.unstack(y_true, axis=-1)
-        y_true = tf.stack(unpacked[:-1], axis=-1)
-        cross_entropy_bg = -(y_true[:,0] * log_softmax[:,0])
-        cross_entropy_fg = -K.sum(y_true[:,1:] * log_softmax[:,1:], axis=1)
-        cross_entropy_mean = K.mean(w * cross_entropy_fg + cross_entropy_bg)
-        return cross_entropy_mean
-    return softmax_sparse_crossentropy_ignoring_last_label
+def softmax_sparse_crossentropy_ignoring_last_label(y_true, y_pred):
+    y_pred = K.reshape(y_pred, (-1, K.int_shape(y_pred)[-1]))
+    log_softmax = tf.nn.log_softmax(y_pred)
+    y_true = K.one_hot(tf.to_int32(K.flatten(y_true)), K.int_shape(y_pred)[-1]+1)
+    unpacked = tf.unstack(y_true, axis=-1)
+    y_true = tf.stack(unpacked[:-1], axis=-1)
+    cross_entropy = -K.sum(y_true * log_softmax, axis=1)
+    cross_entropy_mean = K.mean(cross_entropy)
+    return cross_entropy_mean
+
+# def wisense_loss(w):
+#     def softmax_sparse_crossentropy_ignoring_last_label(y_true, y_pred):
+#         y_pred = K.reshape(y_pred, (-1, K.int_shape(y_pred)[-1]))
+#         log_softmax = tf.nn.log_softmax(y_pred)
+#         y_true = K.one_hot(tf.to_int32(K.flatten(y_true)), K.int_shape(y_pred)[-1]+1)
+#         unpacked = tf.unstack(y_true, axis=-1)
+#         y_true = tf.stack(unpacked[:-1], axis=-1)
+#         cross_entropy_bg = -(y_true[:,0] * log_softmax[:,0])
+#         cross_entropy_fg = -K.sum(y_true[:,1:] * log_softmax[:,1:], axis=1)
+#         cross_entropy_mean = K.mean(w * cross_entropy_fg + cross_entropy_bg)
+#         return cross_entropy_mean
+#     return softmax_sparse_crossentropy_ignoring_last_label
 
 def show_aug_data(gen, data_trn_gen_args_image, data_trn_gen_args_mask):
     x, y = next(gen)
@@ -470,9 +647,9 @@ class SegModel:
     def build_callbacks(self, tf_board = False, plot_process = True, steps = 50):
         
         tensorboard = TensorBoard(log_dir='./logs/'+self.net, histogram_freq=0,
-                          write_graph=True, write_images = True)
+                          write_graph=False, write_images = False)
 
-        cl = CyclicLR(base_lr=0.0001, max_lr=0.005,
+        cl = CyclicLR(base_lr=0.0001, max_lr=0.01,
                       step_size=steps, mode = 'cosine', gamma = 0.999995,
                       scale_mode='iterations', cycle_mult = 2)
         
@@ -492,9 +669,16 @@ class SegModel:
     def create_seg_model(self, opt, net, load_weights = False, multi_gpu = True, to_compile = True):
         
         self.net = net
+        n_classes = len(get_VOC2012_classes()) - 1
         
-        n_classes = len(get_VOC2012_classes())
-        if net == 'unet':
+        if net == 'enet':
+            self.modelpath = 'weights/enet.h5'
+            model, _ = build(nc=n_classes, w=self.sz[1], h=self.sz[0], plot=False)
+        elif net == 'mobileunet':
+            self.modelpath = 'weights/mobileunet.h5'
+            model = MobileUNet(input_shape=(self.sz[1], self.sz[0], 3),
+                               alpha=1, alpha_up=1, depth_multiplier=1, n_classes = n_classes)
+        elif net == 'unet':
             self.modelpath = 'weights/unet.h5'
             model = create_unet(self.sz, n_classes)
         elif net == 'segnet':
@@ -517,7 +701,7 @@ class SegModel:
             
         if to_compile:
             model.compile(optimizer = opt, sample_weight_mode = "temporal",
-                          loss = 'sparse_categorical_crossentropy',
+                          loss = softmax_sparse_crossentropy_ignoring_last_label,
                           #loss = wisense_loss(30),
                           metrics = [Mean_IOU, background_sparse_accuracy, 
                                      sparse_accuracy_ignoring_last_label,
