@@ -33,20 +33,6 @@ from enet import build
 import cv2
 import glob
 import random
-import gc
-
-# def save_model_prediction_graph(epoch, logs):
-    
-#     OUTPUT_DIR = 'pred_masks'
-#     for k, i in enumerate(test_generator):
-#         I = i[0][0]/255
-#         preds = model.predict(i[0])
-#         preds = np.reshape(preds, I.shape[1:3] + (-1,))
-#         mask = np.argmax(preds, axis=-1)
-#         plt.imshow(I)
-#         plt.imshow(mask, alpha=.4)
-#         plt.savefig("./" + OUTPUT_DIR + "/image_{}_epoch_{}.png".format(str(k), str(epoch)))
-#         plt.close()
         
 # mobilenet
 def _conv_block(inputs, filters, alpha, kernel=(3, 3), strides=(1, 1), block_id=1):
@@ -738,8 +724,15 @@ class SegModel:
                     image = cv2.imread(file, 1)
                     image = cv2.resize(image, self.sz)
                     preds = self.model.predict(image[None])
-                    preds = np.reshape(preds, image.shape[:2] + (-1,))
-                    mask = np.argmax(preds, axis=-1)
+                    if 'icnet' in self.net:
+                        preds = preds[0]
+                        w = int(preds.shape[1]**.5)
+                        preds = np.reshape(preds, (w,w,-1))
+                        mask = np.argmax(preds, axis=-1)
+                        mask = cv2.resize(mask, image.shape[:2], interpolation = cv2.INTER_NEAREST)
+                    else:
+                        preds = np.reshape(preds, image.shape[:2] + (-1,))
+                        mask = np.argmax(preds, axis=-1)
                     plt.imshow(image)
                     plt.imshow(mask, alpha=.5)
                     os.makedirs(self.mainpath+OUTPUT_DIR+'/image_'+str(k))
