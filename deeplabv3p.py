@@ -399,46 +399,46 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
         x = Activation(relu6, name='Conv_Relu6')(x)
 
         x = _inverted_res_block(x, filters=16, alpha=alpha, stride=1,
-                                expansion=1, block_id=0, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=1, block_id=0, skip_connection=False, use_coordconv=False)
 
         x = _inverted_res_block(x, filters=24, alpha=alpha, stride=2,
-                                expansion=6, block_id=1, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=6, block_id=1, skip_connection=False, use_coordconv=False)
         x = _inverted_res_block(x, filters=24, alpha=alpha, stride=1,
-                                expansion=6, block_id=2, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=2, skip_connection=True, use_coordconv=False)
 
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=2,
-                                expansion=6, block_id=3, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=6, block_id=3, skip_connection=False, use_coordconv=False)
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=4, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=4, skip_connection=True, use_coordconv=False)
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=5, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=5, skip_connection=True, use_coordconv=False)
 
         # stride in block 6 changed from 2 -> 1, so we need to use rate = 2
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1,  # 1!
-                                expansion=6, block_id=6, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=6, block_id=6, skip_connection=False, use_coordconv=False)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=7, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=7, skip_connection=True, use_coordconv=False)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=8, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=8, skip_connection=True, use_coordconv=False)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=9, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=9, skip_connection=True, use_coordconv=False)
 
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=10, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=6, block_id=10, skip_connection=False, use_coordconv=False)
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=11, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=11, skip_connection=True, use_coordconv=False)
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=12, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=12, skip_connection=True, use_coordconv=False)
 
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=2,  # 1!
-                                expansion=6, block_id=13, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=6, block_id=13, skip_connection=False, use_coordconv=False)
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=14, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=14, skip_connection=True, use_coordconv=False)
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=15, skip_connection=True, use_coordconv=use_coordconv)
+                                expansion=6, block_id=15, skip_connection=True, use_coordconv=False)
 
         x = _inverted_res_block(x, filters=320, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=16, skip_connection=False, use_coordconv=use_coordconv)
+                                expansion=6, block_id=16, skip_connection=False, use_coordconv=False)
 
     # end of feature extractor
 
@@ -447,6 +447,9 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
     # Image Feature branch
     #out_shape = int(np.ceil(input_shape[0] / OS))
     b4 = AveragePooling2D(pool_size=(int(np.ceil(input_shape[0] / OS)), int(np.ceil(input_shape[1] / OS))))(x)
+    if use_coordconv:
+        b4 = CoordinateChannel2D(use_radius=True)(b4)
+        
     b4 = Conv2D(256, (1, 1), padding='same',
                 use_bias=False, name='image_pooling')(b4)
     b4 = BatchNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
