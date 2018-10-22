@@ -278,7 +278,7 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
     return x
 
 
-def Deeplabv3(weights='pascal_voc', input_tensor=None, 
+def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
               input_shape=(512, 512, 3), classes=21, backbone='mobilenetv2', 
               OS=16, alpha=1., use_coordconv = True):
     
@@ -517,8 +517,11 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None,
     x = Conv2D(classes, (1, 1), padding='same', name=last_layer_name)(x)
     #x = BilinearUpsampling(output_size=(input_shape[0], input_shape[1]))(x)
     x = Lambda(lambda x: tf.image.resize_bilinear(x,size=(input_shape[0],input_shape[1])))(x)
-    x = Reshape((input_shape[0]*input_shape[1], classes)) (x)
-    x = Activation('softmax')(x)
+    if infer:
+        x = Lambda(lambda x: K.argmax(x, axis=-1))(x)
+    else:
+        x = Reshape((input_shape[0]*input_shape[1], classes)) (x)
+        x = Activation('softmax')(x)
     # Ensure that the model takes into account
     # any potential predecessors of `input_tensor`.
     if input_tensor is not None:
