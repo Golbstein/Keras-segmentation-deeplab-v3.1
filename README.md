@@ -29,9 +29,9 @@ Below depicted few examples:
 
 **And the IOU score amid the classes:**
 
-![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/IOUs.JPG)
+![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/iou.JPG)
 
-I didn't receive a significant improvement of the IOU scores, perhaps due to low number of epochs. However I believe this method can eventually outperform the original model with bigger dataset and more epochs.
+I didn't receive a significant improvement of the IOU scores, perhaps due to low number of epochs. However I believe this method can eventually outperform the original model for a bigger dataset and more epochs.
 
 ## Dependencies
 * Python 3.6
