@@ -48,7 +48,6 @@ from keras import backend as K
 # from keras.applications import imagenet_utils
 from keras.utils import conv_utils
 from keras.utils.data_utils import get_file
-from coord import CoordinateChannel2D
 import tensorflow as tf
 
 WEIGHTS_PATH_X = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_xception_tf_dim_ordering_tf_kernels.h5"
