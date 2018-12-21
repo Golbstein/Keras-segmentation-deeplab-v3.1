@@ -7,7 +7,7 @@ with the original model [implementation](https://github.com/tensorflow/models/tr
 
 ## Features
 1. Conditional Random Fields (CRF) implementation as post-processing step to aquire better contour that is correlated with nearby pixels and their color. See here: [Fully-Connected CRF](https://github.com/lucasb-eyer/pydensecrf)
-2. Custom image generator for semantic segmentation with large augemntation capabilities.
+2. Custom image generator for semantic segmentation with large augmentation capabilities.
 
 ## New Features That Are Not Included In The Paper
 1. Keras Subpixel (Pixel-Shuffle layer) from: [Keras-Subpixel](https://github.com/tetrachrome/subpixel/blob/master/keras_subpixel.py) for efficient upsampling and more accurate segmentation
