@@ -13,4 +13,12 @@ with the original model [implementation](https://github.com/tensorflow/models/tr
 1. Keras Subpixel (Pixel-Shuffle layer) from: [Keras-Subpixel](https://github.com/tetrachrome/subpixel/blob/master/keras_subpixel.py) for efficient upsampling and more accurate segmentation
 2. Comparisson of the original Deeplab model with my Deeplab+subpixel+CRF
 3. Fast training - transfer learning from paper's proposed model to a better model within ~1 hour with 1-1080Ti GPU
+4. Jaccard (mIOU) monitoring during training process for multi-class segmentation tasks
 
+
+
+## Dependencies
+* Python 3.6
+* Keras>2.2.x
+* pydensecrf
+* tensorflow > 1.11
