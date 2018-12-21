@@ -25,6 +25,7 @@ Below depicted few examples:
 ![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp1.JPG)
 ![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp3.JPG)
 ![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp2.JPG)
+![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp4.JPG)
 
 **And the IOU score amid the classes:**
 
