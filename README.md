@@ -16,7 +16,21 @@ with the original model [implementation](https://github.com/tensorflow/models/tr
 4. Fast training - transfer learning from paper's proposed model to a better model within ~1 hour with 1-1080Ti GPU
 5. Jaccard (mIOU) monitoring during training process for multi-class segmentation tasks
 
+## Results
+**I've compared the segmentation visual results and the IOU score between paper's model and mine, as well as the outcome of applying CRF as a post-processing step.**
 
+Below depicted few examples:
+
+
+![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp1.JPG)
+![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp3.JPG)
+![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/exp2.JPG)
+
+**And the IOU score amid the classes:**
+
+![alt text](https://github.com/Golbstein/deeplabv3_keras/blob/master/examples/IOUs.JPG)
+
+I didn't receive a significant improvement of the IOU scores, perhaps due to low number of epochs. However I believe this method can eventually outperform the original model with bigger dataset and more epochs.
 
 ## Dependencies
 * Python 3.6
