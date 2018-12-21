@@ -26,10 +26,50 @@ import cv2
 import glob
 import random
 from tqdm import tqdm
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_labels
+import itertools
 
 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
 
 
+def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix', cmap=plt.cm.Blues):
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+    trained_classes = classes
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title,fontsize=11)
+    tick_marks = np.arange(len(classes))
+    plt.xticks(np.arange(len(trained_classes)), classes, rotation=90,fontsize=9)
+    plt.yticks(tick_marks, classes,fontsize=9)
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, np.round(cm[i, j],2), horizontalalignment="center", color="white" if cm[i, j] > thresh else "black", fontsize=7)
+    plt.tight_layout()
+    plt.ylabel('True label',fontsize=9)
+    plt.xlabel('Predicted label',fontsize=9)
+
+# Fully connected CRF post processing function
+def do_crf(im, mask, zero_unsure=True):
+    colors, labels = np.unique(mask, return_inverse=True)
+    image_size = mask.shape[:2]
+    n_labels = len(set(labels.flat))
+    d = dcrf.DenseCRF2D(image_size[1], image_size[0], n_labels)  # width, height, nlabels
+    U = unary_from_labels(labels, n_labels, gt_prob=.7, zero_unsure=zero_unsure)
+    d.setUnaryEnergy(U)
+    # This adds the color-independent term, features are the locations only.
+    d.addPairwiseGaussian(sxy=(3,3), compat=3)
+    # This adds the color-dependent term, i.e. features are (x,y,r,g,b).
+    # im is an image-array, e.g. im.dtype == np.uint8 and im.shape == (640,480,3)
+    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=im.astype('uint8'), compat=10)
+    Q = d.inference(5) # 5 - num of iterations
+    MAP = np.argmax(Q, axis=0).reshape(image_size)
+    unique_map = np.unique(MAP)
+    for u in unique_map: # get original labels back
+        np.putmask(MAP, MAP == u, colors[u])
+    return MAP
+    # MAP = do_crf(frame, labels.astype('int32'), zero_unsure=False)
+    
 def get_available_gpus():
     local_device_protos = device_lib.list_local_devices()
     return [x.name for x in local_device_protos if x.device_type == 'GPU']
@@ -114,14 +154,14 @@ class SegModel:
                           input_shape = self.sz + (3,), classes=21,
                           backbone=backbone, OS=8, alpha=1)
         if load_weights:
-            model.load_weights('deeplabv3_{}_tf_dim_ordering_tf_kernels.h5'.format(backbone))
+            model.load_weights('weights/{}_{}.h5'.format(backbone, net))
 
         base_model = Model(model.input, model.layers[-5].output)
         for layer in base_model.layers:
             layer.trainable = False
 
         self.net = net
-        self.modelpath = 'weights/'+self.net+'{epoch:03d}.h5'
+        self.modelpath = 'weights/{}_{}.h5'.format(backbone, net)
         if backbone=='xception':
             scale = 4
         else:
