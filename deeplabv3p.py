@@ -32,14 +32,19 @@ from keras.layers import Concatenate
 from keras.layers import Add, Reshape
 from keras.layers import Dropout
 from keras.layers import BatchNormalization
+
 from keras.layers import Conv2D
-from keras.layers import DepthwiseConv2D
+
+from keras.activations import relu
+
+from keras.layers import DepthwiseConv2D, UpSampling2D
 from keras.layers import ZeroPadding2D, Lambda
 from keras.layers import AveragePooling2D
 from keras.engine import Layer
 from keras.engine import InputSpec
 from keras.engine.topology import get_source_inputs
 from keras import backend as K
+
 # from keras.applications import imagenet_utils
 from keras.utils import conv_utils
 from keras.utils.data_utils import get_file
@@ -50,61 +55,8 @@ WEIGHTS_PATH_X = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/down
 WEIGHTS_PATH_MOBILE = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels.h5"
 
 
-# class BilinearUpsampling(Layer):
-#     """Just a simple bilinear upsampling layer. Works only with TF.
-#        Args:
-#            upsampling: tuple of 2 numbers > 0. The upsampling ratio for h and w
-#            output_size: used instead of upsampling arg if passed!
-#     """
 
-#     def __init__(self, upsampling=(2, 2), output_size=None, data_format=None, **kwargs):
-
-#         super(BilinearUpsampling, self).__init__(**kwargs)
-
-#         self.data_format = K.normalize_data_format(data_format)
-#         self.input_spec = InputSpec(ndim=4)
-#         if output_size:
-#             self.output_size = conv_utils.normalize_tuple(
-#                 output_size, 2, 'output_size')
-#             self.upsampling = None
-#         else:
-#             self.output_size = None
-#             self.upsampling = conv_utils.normalize_tuple(
-#                 upsampling, 2, 'upsampling')
-
-#     def compute_output_shape(self, input_shape):
-#         if self.upsampling:
-#             height = self.upsampling[0] * \
-#                 input_shape[1] if input_shape[1] is not None else None
-#             width = self.upsampling[1] * \
-#                 input_shape[2] if input_shape[2] is not None else None
-#         else:
-#             height = self.output_size[0]
-#             width = self.output_size[1]
-#         return (input_shape[0],
-#                 height,
-#                 width,
-#                 input_shape[3])
-
-#     def call(self, inputs):
-#         if self.upsampling:
-#             return K.tf.image.resize_bilinear(inputs, (inputs.shape[1] * self.upsampling[0],
-#                                                        inputs.shape[2] * self.upsampling[1]),
-#                                               align_corners=True)
-#         else:
-#             return K.tf.image.resize_bilinear(inputs, (self.output_size[0],
-#                                                        self.output_size[1]),
-#                                               align_corners=True)
-
-#     def get_config(self):
-#         config = {'upsampling': self.upsampling,
-#                   'output_size': self.output_size,
-#                   'data_format': self.data_format}
-#         base_config = super(BilinearUpsampling, self).get_config()
-#         return dict(list(base_config.items()) + list(config.items()))
-
-
-def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activation=False, epsilon=1e-3, use_coordconv=True):
+def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activation=False, epsilon=1e-3):
     """ SepConv with BN between depthwise & pointwise. Optionally add activation after BN
         Implements right "same" padding for even kernel sizes
         Args:
@@ -135,8 +87,6 @@ def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activa
     x = BatchNormalization(name=prefix + '_depthwise_BN', epsilon=epsilon)(x)
     if depth_activation:
         x = Activation('relu')(x)
-    if use_coordconv:
-        x = CoordinateChannel2D(use_radius=True)(x)    
     x = Conv2D(filters, (1, 1), padding='same',
                use_bias=False, name=prefix + '_pointwise')(x)
     x = BatchNormalization(name=prefix + '_pointwise_BN', epsilon=epsilon)(x)
@@ -216,11 +166,6 @@ def _xception_block(inputs, depth_list, prefix, skip_connection_type, stride,
     else:
         return outputs
 
-
-def relu6(x):
-    return K.relu(x, max_value=6)
-
-
 def _make_divisible(v, divisor, min_value=None):
     if min_value is None:
         min_value = divisor
@@ -231,7 +176,7 @@ def _make_divisible(v, divisor, min_value=None):
     return new_v
 
 
-def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, skip_connection, rate=1, use_coordconv=True):
+def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, skip_connection, rate=1):
     in_channels = inputs._keras_shape[-1]
     pointwise_conv_filters = int(filters * alpha)
     pointwise_filters = _make_divisible(pointwise_conv_filters, 8)
@@ -239,29 +184,24 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
     prefix = 'expanded_conv_{}_'.format(block_id)
     if block_id:
         # Expand
-        if use_coordconv:
-            x = CoordinateChannel2D(use_radius=True)(x)    
         x = Conv2D(expansion * in_channels, kernel_size=1, padding='same',
                    use_bias=False, activation=None,
                    name=prefix + 'expand')(x)
         x = BatchNormalization(epsilon=1e-3, momentum=0.999,
                                name=prefix + 'expand_BN')(x)
-        x = Activation(relu6, name=prefix + 'expand_relu')(x)
+        #x = Lambda(lambda x: relu(x, max_value=6.))(x)
+        x = Lambda(lambda x: relu(x, max_value=6.), name=prefix + 'expand_relu')(x)
+        #x = Activation(relu(x, max_value=6.), name=prefix + 'expand_relu')(x)
     else:
         prefix = 'expanded_conv_'
     # Depthwise
-
     x = DepthwiseConv2D(kernel_size=3, strides=stride, activation=None,
                         use_bias=False, padding='same', dilation_rate=(rate, rate),
                         name=prefix + 'depthwise')(x)
     x = BatchNormalization(epsilon=1e-3, momentum=0.999,
                            name=prefix + 'depthwise_BN')(x)
-
-    x = Activation(relu6, name=prefix + 'depthwise_relu')(x)
-
-    # Project
-    if use_coordconv:
-        x = CoordinateChannel2D(use_radius=True)(x)    
+    #x = Activation(relu(x, max_value=6.), name=prefix + 'depthwise_relu')(x)
+    x = Lambda(lambda x: relu(x, max_value=6.), name=prefix + 'depthwise_relu')(x)
 
     x = Conv2D(pointwise_filters,
                kernel_size=1, padding='same', use_bias=False, activation=None,
@@ -279,8 +219,8 @@ def _inverted_res_block(inputs, expansion, stride, alpha, filters, block_id, ski
 
 
 def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
-              input_shape=(512, 512, 3), classes=21, backbone='mobilenetv2', 
-              OS=16, alpha=1., use_coordconv = True):
+              input_shape=(512, 512, 3), classes=21, backbone='mobilenetv2',
+              OS=16, alpha=1.):
     
     """ Instantiates the Deeplabv3+ architecture
     Optionally loads weights pre-trained
@@ -315,7 +255,7 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
             backend that does not support separable convolutions.
         ValueError: in case of invalid argument for `weights` or `backbone`
     """
-
+        
     if not (weights in {'pascal_voc', None}):
         raise ValueError('The `weights` argument should be either '
                          '`None` (random initialization) or `pascal_voc` '
@@ -340,9 +280,6 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
     
     
     batches_input = Lambda(lambda x: x/127.5 - 1)(img_input)
-    if use_coordconv: # implemented as in image-classification task in resnet50 (Section S5, page 15)
-        batches_input = CoordinateChannel2D(use_radius=True)(batches_input)
-        batches_input = Conv2D(8, (1, 1), padding='same', name = '8_channels_coordconv_input')(batches_input)
 
     if backbone == 'xception':
         if OS == 8:
@@ -396,49 +333,50 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
                    use_bias=False, name='Conv')(batches_input)
         x = BatchNormalization(
             epsilon=1e-3, momentum=0.999, name='Conv_BN')(x)
-        x = Activation(relu6, name='Conv_Relu6')(x)
+        
+        x = Lambda(lambda x: relu(x, max_value=6.))(x)
 
         x = _inverted_res_block(x, filters=16, alpha=alpha, stride=1,
-                                expansion=1, block_id=0, skip_connection=False, use_coordconv=False)
+                                expansion=1, block_id=0, skip_connection=False)
 
         x = _inverted_res_block(x, filters=24, alpha=alpha, stride=2,
-                                expansion=6, block_id=1, skip_connection=False, use_coordconv=False)
+                                expansion=6, block_id=1, skip_connection=False)
         x = _inverted_res_block(x, filters=24, alpha=alpha, stride=1,
-                                expansion=6, block_id=2, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=2, skip_connection=True)
 
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=2,
-                                expansion=6, block_id=3, skip_connection=False, use_coordconv=False)
+                                expansion=6, block_id=3, skip_connection=False)
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=4, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=4, skip_connection=True)
         x = _inverted_res_block(x, filters=32, alpha=alpha, stride=1,
-                                expansion=6, block_id=5, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=5, skip_connection=True)
 
         # stride in block 6 changed from 2 -> 1, so we need to use rate = 2
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1,  # 1!
-                                expansion=6, block_id=6, skip_connection=False, use_coordconv=False)
+                                expansion=6, block_id=6, skip_connection=False)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=7, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=7, skip_connection=True)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=8, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=8, skip_connection=True)
         x = _inverted_res_block(x, filters=64, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=9, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=9, skip_connection=True)
 
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=10, skip_connection=False, use_coordconv=False)
+                                expansion=6, block_id=10, skip_connection=False)
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=11, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=11, skip_connection=True)
         x = _inverted_res_block(x, filters=96, alpha=alpha, stride=1, rate=2,
-                                expansion=6, block_id=12, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=12, skip_connection=True)
 
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=2,  # 1!
-                                expansion=6, block_id=13, skip_connection=False, use_coordconv=False)
+                                expansion=6, block_id=13, skip_connection=False)
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=14, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=14, skip_connection=True)
         x = _inverted_res_block(x, filters=160, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=15, skip_connection=True, use_coordconv=False)
+                                expansion=6, block_id=15, skip_connection=True)
 
         x = _inverted_res_block(x, filters=320, alpha=alpha, stride=1, rate=4,
-                                expansion=6, block_id=16, skip_connection=False, use_coordconv=False)
+                                expansion=6, block_id=16, skip_connection=False)
 
     # end of feature extractor
 
@@ -447,19 +385,15 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
     # Image Feature branch
     #out_shape = int(np.ceil(input_shape[0] / OS))
     b4 = AveragePooling2D(pool_size=(int(np.ceil(input_shape[0] / OS)), int(np.ceil(input_shape[1] / OS))))(x)
-    if use_coordconv:
-        b4 = CoordinateChannel2D(use_radius=True)(b4)
         
     b4 = Conv2D(256, (1, 1), padding='same',
                 use_bias=False, name='image_pooling')(b4)
     b4 = BatchNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
     b4 = Activation('relu')(b4)
-    b4 = Lambda(lambda x: tf.image.resize_bilinear(x,size=(int(np.ceil(input_shape[0]/OS)),int(np.ceil(input_shape[1]/OS)))))(b4)
-    #b4 = BilinearUpsampling((int(np.ceil(input_shape[0] / OS)), int(np.ceil(input_shape[1] / OS))))(b4)
+    
+    b4 = Lambda(lambda x: K.tf.image.resize_bilinear(x,size=(int(np.ceil(input_shape[0]/OS)), int(np.ceil(input_shape[1]/OS)))))(b4)
 
     # simple 1x1
-    if use_coordconv:
-        x = CoordinateChannel2D(use_radius=True)(x)    
     b0 = Conv2D(256, (1, 1), padding='same', use_bias=False, name='aspp0')(x)
     b0 = BatchNormalization(name='aspp0_BN', epsilon=1e-5)(b0)
     b0 = Activation('relu', name='aspp0_activation')(b0)
@@ -468,21 +402,19 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
     if backbone == 'xception':
         # rate = 6 (12)
         b1 = SepConv_BN(x, 256, 'aspp1',
-                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5, use_coordconv=use_coordconv)
+                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
         # rate = 12 (24)
         b2 = SepConv_BN(x, 256, 'aspp2',
-                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5, use_coordconv=use_coordconv)
+                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
         # rate = 18 (36)
         b3 = SepConv_BN(x, 256, 'aspp3',
-                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5, use_coordconv=use_coordconv)
+                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
 
         # concatenate ASPP branches & project
         x = Concatenate()([b4, b0, b1, b2, b3])
     else:
         x = Concatenate()([b4, b0])
         
-    if use_coordconv:
-        x = CoordinateChannel2D(use_radius=True)(x)    
     x = Conv2D(256, (1, 1), padding='same',
                use_bias=False, name='concat_projection')(x)
     x = BatchNormalization(name='concat_projection_BN', epsilon=1e-5)(x)
@@ -494,10 +426,9 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
     if backbone == 'xception':
         # Feature projection
         # x4 (x2) block
-        x = Lambda(lambda x: tf.image.resize_bilinear(x,size=(int(np.ceil(input_shape[0]/4)),int(np.ceil(input_shape[1]/4)))))(x)
+
+        x = Lambda(lambda x: K.tf.image.resize_bilinear(x,size=(int(np.ceil(input_shape[0]/4)), int(np.ceil(input_shape[1]/4)))))(x)
         
-        #x = BilinearUpsampling(output_size=(int(np.ceil(input_shape[0] / 4)),
-        #                                    int(np.ceil(input_shape[1] / 4))))(x)
         dec_skip1 = Conv2D(48, (1, 1), padding='same',
                            use_bias=False, name='feature_projection0')(skip1)
         dec_skip1 = BatchNormalization(
@@ -505,9 +436,9 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
         dec_skip1 = Activation('relu')(dec_skip1)
         x = Concatenate()([x, dec_skip1])
         x = SepConv_BN(x, 256, 'decoder_conv0',
-                       depth_activation=True, epsilon=1e-5, use_coordconv=use_coordconv)
+                       depth_activation=True, epsilon=1e-5)
         x = SepConv_BN(x, 256, 'decoder_conv1',
-                       depth_activation=True, epsilon=1e-5, use_coordconv=use_coordconv)
+                       depth_activation=True, epsilon=1e-5)
 
     # you can use it with arbitary number of classes
     if classes == 21:
@@ -515,14 +446,11 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
     else:
         last_layer_name = 'custom_logits_semantic'
     
-    if use_coordconv:
-        x = CoordinateChannel2D(use_radius=True)(x)    
+    
     x = Conv2D(classes, (1, 1), padding='same', name=last_layer_name)(x)
-    #x = BilinearUpsampling(output_size=(input_shape[0], input_shape[1]))(x)
-    x = Lambda(lambda x: tf.image.resize_bilinear(x,size=(input_shape[0],input_shape[1])))(x)
+    x = Lambda(lambda x: K.tf.image.resize_bilinear(x,size=(input_shape[0],input_shape[1])))(x)
     if infer:
-        pass
-        #x = Lambda(lambda x: K.argmax(x, axis=-1))(x)
+        x = Activation('softmax')(x)
     else:
         x = Reshape((input_shape[0]*input_shape[1], classes)) (x)
         x = Activation('softmax')(x)
@@ -548,13 +476,3 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, infer = False,
                                     cache_subdir='models')
         model.load_weights(weights_path, by_name=True)
     return model
-
-
-# def preprocess_input(x):
-#     """Preprocesses a numpy array encoding a batch of images.
-#     # Arguments
-#         x: a 4D numpy array consists of RGB values within [0, 255].
-#     # Returns
-#         Input array scaled to [-1.,1.]
-#     """
-#     return imagenet_utils.preprocess_input(x, mode='tf')
