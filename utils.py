@@ -49,6 +49,7 @@ def plot_confusion_matrix(cm, classes, normalize=False, title='Confusion matrix'
     plt.tight_layout()
     plt.ylabel('True label',fontsize=9)
     plt.xlabel('Predicted label',fontsize=9)
+    return cm
 
 # Fully connected CRF post processing function
 def do_crf(im, mask, zero_unsure=True):
