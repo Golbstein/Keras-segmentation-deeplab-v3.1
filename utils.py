@@ -1,5 +1,6 @@
 from __future__ import print_function
 import warnings
+import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 import numpy as np
 from deeplabv3p import Deeplabv3
