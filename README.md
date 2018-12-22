@@ -15,7 +15,8 @@ with the original model [implementation](https://github.com/tensorflow/models/tr
 2. ICNR Initializer for subpixel layer (removing checkerboard artifact) [ICNR](https://arxiv.org/ftp/arxiv/papers/1707/1707.02937.pdf)
 3. Comparisson of the original Deeplab model with my Deeplab+subpixel+CRF
 4. Fast training - transfer learning from paper's proposed model to a better model within ~1 hour with 1-1080Ti GPU
-5. Jaccard (mIOU) monitoring during training process for multi-class segmentation tasks
+5. Jaccard (mIOU) monitoring during training process for multi-class segmentation tasks.
+6. Adaptive pixel weights.
 
 ## Results
 **I've compared the segmentation visual results and the IOU score between paper's model and mine, as well as the outcome of applying CRF as a post-processing step.**
