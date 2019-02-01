@@ -198,7 +198,7 @@ class SegModel:
                           brightness=0.1, rotation=5.0, zoom=0.1, validation_split = .2, seed = 7):
                 
         generator = SegmentationGenerator(folder = self.mainpath, mode = mode, n_classes = n_classes, do_ahisteq = do_ahisteq,
-                                       batch_size=self.batch_size, resize_shape=self.sz, crop_shape=crop_shape, 
+                                       batch_size=self.batch_size, resize_shape=self.sz[::-1], crop_shape=crop_shape, 
                                        horizontal_flip=horizontal_flip, vertical_flip=vertical_flip, blur = blur,
                                        brightness=brightness, rotation=rotation, zoom=zoom,
                                        validation_split = validation_split, seed = seed)
