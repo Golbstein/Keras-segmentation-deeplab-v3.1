@@ -155,8 +155,6 @@ class SegModel:
         model = Deeplabv3(weights=None, input_tensor=None, infer = False,
                           input_shape = self.sz + (3,), classes=21,
                           backbone=backbone, OS=8, alpha=1)
-        if load_weights:
-            model.load_weights('weights/{}_{}.h5'.format(backbone, net))
 
         base_model = Model(model.input, model.layers[-5].output)
         for layer in base_model.layers:
@@ -185,6 +183,9 @@ class SegModel:
                 c, b = layer.get_weights()
                 w = icnr_weights(scale=scale, shape=c.shape)
                 layer.set_weights([w, b])
+                
+        if load_weights:
+            model.load_weights('weights/{}_{}.h5'.format(backbone, net))
 
         if multi_gpu:
             from keras.utils import multi_gpu_model
