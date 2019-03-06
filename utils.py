@@ -157,9 +157,6 @@ class SegModel:
                           backbone=backbone, OS=8, alpha=1)
 
         base_model = Model(model.input, model.layers[-5].output)
-        for layer in base_model.layers:
-            layer.trainable = False
-
         self.net = net
         self.modelpath = 'weights/{}_{}.h5'.format(backbone, net)
         if backbone=='xception':
