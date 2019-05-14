@@ -65,7 +65,7 @@ def SepConv_BN(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_activa
             stride: stride at depthwise conv
             kernel_size: kernel size for depthwise convolution
             rate: atrous rate for depthwise convolution
-            depth_activation: flag to use activation between depthwise & poinwise convs
+            depth_activation: flag to use activation between depthwise & pointwise convs
             epsilon: epsilon to use in BN layer
     """
 
