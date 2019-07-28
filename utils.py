@@ -144,7 +144,7 @@ class SegModel:
         self.crop = False
             
     
-    def create_seg_model(self, net, n=21, backbone = 'mobilenetv2', load_weights = False, multi_gpu = False):
+    def create_seg_model(self, net, n=21, backbone='mobilenetv2', load_weights=False, multi_gpu=False):
         
         '''
         Net is:
@@ -154,7 +154,7 @@ class SegModel:
         
         model = Deeplabv3(weights=None, input_tensor=None, infer = False,
                           input_shape = self.sz + (3,), classes=21,
-                          backbone=backbone, OS=8, alpha=1)
+                          backbone=backbone, OS=16, alpha=1)
 
         base_model = Model(model.input, model.layers[-5].output)
         self.net = net
