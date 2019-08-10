@@ -152,10 +152,10 @@ class SegModel:
         2. original deeplab v3+ and subpixel upsampling layer
         '''
         
-        model = Deeplabv3(weights=None, input_tensor=None, infer = False,
-                          input_shape = self.sz + (3,), classes=21,
+        model = Deeplabv3(weights=None, input_tensor=None, infer=False,
+                          input_shape=self.sz + (3,), classes=21,
                           backbone=backbone, OS=16, alpha=1)
-
+        
         base_model = Model(model.input, model.layers[-5].output)
         self.net = net
         self.modelpath = 'weights/{}_{}.h5'.format(backbone, net)
@@ -191,9 +191,9 @@ class SegModel:
         self.model = model
         return model
 
-    def create_generators(self, crop_shape = False, mode = 'train', do_ahisteq = True,
-                          n_classes = 21, horizontal_flip = True, vertical_flip = False, blur = False, with_bg = True,
-                          brightness=0.1, rotation=5.0, zoom=0.1, validation_split = .2, seed = 7):
+    def create_generators(self, crop_shape=False, mode='train', do_ahisteq=True, n_classes=21, horizontal_flip=True, 
+                          vertical_flip=False, blur=False, with_bg=True, brightness=0.1, rotation=5.0, 
+                          zoom=0.1, validation_split=.2, seed=7):
                 
         generator = SegmentationGenerator(folder = self.mainpath, mode = mode, n_classes = n_classes, do_ahisteq = do_ahisteq,
                                        batch_size=self.batch_size, resize_shape=self.sz[::-1], crop_shape=crop_shape, 
