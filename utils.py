@@ -7,21 +7,40 @@ from deeplabv3p import Deeplabv3
 import os
 import multiprocessing
 workers = multiprocessing.cpu_count()//2
-import keras
-import keras.backend as K
-from keras.utils.data_utils import Sequence
 import tensorflow as tf
-from keras.optimizers import Adam, SGD, RMSprop
-from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
-from keras.layers import *
-from subpixel import *
-from keras.models import Model, Sequential
-from keras.callbacks import TensorBoard
+
+if tf.__version__[0] == "2":
+    _IS_TF_2 = True
+    import tensorflow.keras.backend as K
+    from tensorflow.keras.utils import Sequence
+    from tensorflow.keras.optimizers import Adam, SGD, RMSprop
+    from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
+    from tensorflow.keras.layers import *
+    from subpixel import *
+    from tensorflow.keras.models import Model, Sequential
+    from tensorflow.keras.callbacks import TensorBoard
+    from tensorflow.keras.preprocessing.image import ImageDataGenerator
+    from tensorflow.python.client import device_lib
+    from tensorflow.keras.regularizers import l2
+    from tensorflow.keras.utils import to_categorical
+else:
+    _IS_TF_2 = False
+    import keras
+    import keras.backend as K
+    from keras.utils.data_utils import Sequence
+    from keras.optimizers import Adam, SGD, RMSprop
+    from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LambdaCallback
+    from keras.layers import *
+    from subpixel import *
+    from keras.models import Model, Sequential
+    from keras.callbacks import TensorBoard
+    from keras.preprocessing.image import ImageDataGenerator
+    from tensorflow.python.client import device_lib
+    from keras.regularizers import l2
+    from keras.utils import to_categorical
+    
 from collections import Counter
-from keras.preprocessing.image import ImageDataGenerator
-from tensorflow.python.client import device_lib
-from keras.regularizers import l2
-from keras.utils import to_categorical
+
 from sklearn.utils import class_weight
 import cv2
 import glob
@@ -128,10 +147,13 @@ def Jaccard(y_true, y_pred):
         union = tf.to_int32(true_labels | pred_labels)
         legal_batches = K.sum(tf.to_int32(true_labels), axis=1)>0
         ious = K.sum(inter, axis=1)/K.sum(union, axis=1)
-        iou.append(K.mean(tf.gather(ious, indices=tf.where(legal_batches)))) # returns average IoU of the same objects
+        if _IS_TF_2:
+            iou.append(K.mean(ious[legal_batches]))
+        else:
+            iou.append(K.mean(tf.gather(ious, indices=tf.where(legal_batches)))) # returns average IoU of the same objects
     iou = tf.stack(iou)
-    legal_labels = ~tf.debugging.is_nan(iou)
-    iou = tf.gather(iou, indices=tf.where(legal_labels))
+    legal_labels = ~tf.math.is_nan(iou) if _IS_TF_2 else ~tf.debugging.is_nan(iou)
+    iou = iou[legal_labels] if _IS_TF_2 else tf.gather(iou, indices=tf.where(legal_labels))
     return K.mean(iou)
 
         
@@ -333,9 +355,7 @@ class SegmentationGenerator(Sequence):
             if self.histeq: # and convert to RGB
                 img_yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
                 img_yuv[:,:,0] = clahe.apply(img_yuv[:,:,0])
-                image = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2RGB) # to RGB
-            else:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # BGR to RGB
+                image = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR) # to BGR
                  
             label = label.astype('int32')
             for j in np.setxor1d(np.unique(label), labels):
@@ -375,6 +395,8 @@ class SegmentationGenerator(Sequence):
             class_weights[self.n_classes] = 0.
             for yy in u_classes:
                 np.putmask(self.SW[n], y==yy, class_weights[yy])
+                
+            np.putmask(self.SW[n], y==self.n_classes, 0)
 
         sample_dict = {'pred_mask' : self.SW}
         return self.X, self.Y, sample_dict
