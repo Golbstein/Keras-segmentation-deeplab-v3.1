@@ -2,7 +2,7 @@
 
 **DeepLab V3+ for Semantic Image Segmentation With Subpixel Upsampling Layer Implementation in Keras**
 
-*** Added Tensorflow 2 support - Nov 2019 ***
+***Added Tensorflow 2 support - Nov 2019***
 
 DeepLab is a state-of-art deep learning model for semantic image segmentation.
 Original DeepLabV3 can be reviewed here: [DeepLab Paper](https://arxiv.org/pdf/1606.00915)
