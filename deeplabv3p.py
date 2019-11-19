@@ -23,32 +23,21 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-
-from keras.models import Model
-from keras import layers
-from keras.layers import Input
-from keras.layers import Activation
-from keras.layers import Concatenate
-from keras.layers import Add, Reshape
-from keras.layers import Dropout
-from keras.layers import BatchNormalization
-
-from keras.layers import Conv2D
-
-from keras.activations import relu
-
-from keras.layers import DepthwiseConv2D, UpSampling2D
-from keras.layers import ZeroPadding2D, Lambda
-from keras.layers import AveragePooling2D
-from keras.engine import Layer
-from keras.engine import InputSpec
-from keras.engine.topology import get_source_inputs
-from keras import backend as K
-
-# from keras.applications import imagenet_utils
-from keras.utils import conv_utils
-from keras.utils.data_utils import get_file
 import tensorflow as tf
+
+if tf.__version__[0] == "2":
+    from tensorflow.keras.models import Model
+    from tensorflow.keras.activations import relu
+    from tensorflow.keras.layers import Layer, InputSpec, Conv2D, DepthwiseConv2D, UpSampling2D, ZeroPadding2D, Lambda, AveragePooling2D, Input, Activation, Concatenate, Add, Reshape, BatchNormalization, Dropout 
+    from tensorflow.python.keras.engine import get_source_inputs
+    from tensorflow.keras import backend as K
+else:
+    from keras.models import Model
+    from keras.activations import relu
+    from keras.layers import Conv2D, DepthwiseConv2D, UpSampling2D, ZeroPadding2D, Lambda, AveragePooling2D, Input, Activation, Concatenate, Add, Reshape, BatchNormalization, Dropout 
+    from keras.engine import Layer, InputSpec
+    from keras.engine.topology import get_source_inputs
+    from keras import backend as K
 
 WEIGHTS_PATH_X = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_xception_tf_dim_ordering_tf_kernels.h5"
 WEIGHTS_PATH_MOBILE = "https://github.com/bonlime/keras-deeplab-v3-plus/releases/download/1.1/deeplabv3_mobilenetv2_tf_dim_ordering_tf_kernels.h5"
