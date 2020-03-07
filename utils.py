@@ -86,9 +86,10 @@ def do_crf(im, mask, zero_unsure=True):
     Q = d.inference(5) # 5 - num of iterations
     MAP = np.argmax(Q, axis=0).reshape(image_size)
     unique_map = np.unique(MAP)
+    result = np.copy(MAP)
     for u in unique_map: # get original labels back
-        np.putmask(MAP, MAP == u, colors[u])
-    return MAP
+        np.putmask(result, MAP == u, colors[u])
+    return result
     # MAP = do_crf(frame, labels.astype('int32'), zero_unsure=False)
     
 def get_available_gpus():
